@@ -1,0 +1,11 @@
+﻿apps/api/src/index.ts(21,20): error TS6133: 'req' is declared but its value is never read.
+apps/api/src/index.ts(21,65): error TS6133: 'next' is declared but its value is never read.
+apps/api/src/index.ts(34,39): error TS2345: Argument of type 'import("D:/Documents/6th Semester/PDC/Labs/Project/scalable-messaging-app/node_modules/@types/ws/index").default' is not assignable to parameter of type 'WebSocket'.
+  Property 'dispatchEvent' is missing in type 'import("D:/Documents/6th Semester/PDC/Labs/Project/scalable-messaging-app/node_modules/@types/ws/index").default' but required in type 'import("D:/Documents/6th Semester/PDC/Labs/Project/scalable-messaging-app/node_modules/undici-types/websocket").WebSocket'.
+apps/api/src/routes/health.ts(7,18): error TS6133: 'req' is declared but its value is never read.
+apps/api/src/ws/connectionManager.ts(48,72): error TS2339: Property 'OPEN' does not exist on type 'typeof import("D:/Documents/6th Semester/PDC/Labs/Project/scalable-messaging-app/node_modules/@types/ws/index")'.
+apps/api/src/ws/connectionManager.ts(60,54): error TS2339: Property 'OPEN' does not exist on type 'typeof import("D:/Documents/6th Semester/PDC/Labs/Project/scalable-messaging-app/node_modules/@types/ws/index")'.
+apps/api/src/ws/eventHandlers.ts(123,28): error TS6133: 'socketId' is declared but its value is never read.
+apps/api/src/ws/eventHandlers.ts(125,35): error TS2339: Property 'OPEN' does not exist on type 'typeof import("D:/Documents/6th Semester/PDC/Labs/Project/scalable-messaging-app/node_modules/@types/ws/index")'.
+apps/api/src/ws/eventHandlers.ts(131,35): error TS2339: Property 'OPEN' does not exist on type 'typeof import("D:/Documents/6th Semester/PDC/Labs/Project/scalable-messaging-app/node_modules/@types/ws/index")'.
+apps/api/src/ws/messageHandler.ts(40,35): error TS2339: Property 'OPEN' does not exist on type 'typeof import("D:/Documents/6th Semester/PDC/Labs/Project/scalable-messaging-app/node_modules/@types/ws/index")'.
