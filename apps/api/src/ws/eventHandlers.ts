@@ -1,8 +1,8 @@
 import WebSocket from "ws";
-import { ClientJoin, ClientMessage, WsEvent } from "@repo/types";
+import { ClientJoin, ClientMessage, ClientFetchHistory, WsEvent, ServerMessage } from "@repo/types";
 import { sanitizeUsername, isValidUsername, truncateContent } from "@repo/shared";
 import { connectionManager } from "./connectionManager";
-import { getRecentMessages, saveMessage } from "../db/queries";
+import { getChatHistory, saveMessage } from "../db/queries";
 import { supabase } from "../db/supabase";
 import { config } from "../config";
 
@@ -50,11 +50,12 @@ export async function handleJoin(
       username,
       nodeId: config.nodeId,
       onlineCount,
+      activeUsers: connectionManager.getUsernames(),
     });
 
-    // 4. Load & send HISTORY
+    // 4. Load & send initial global HISTORY
     try {
-      const history = await getRecentMessages(50);
+      const history = await getChatHistory(username, "global", 50);
       connectionManager.send(socketId, {
         type: WsEvent.HISTORY,
         messages: history,
@@ -94,17 +95,50 @@ export async function handleMessage(
   }
 
   try {
-    // Save to DB
-    const savedMessage = await saveMessage(client.username, content, config.nodeId);
+    // Save to DB with optional recipient for DMs
+    const savedMessage = await saveMessage(client.username, content, config.nodeId, payload.recipient);
 
-    // Broadcast to all
-    connectionManager.broadcastAll({
+    const broadcastPayload = {
       type: WsEvent.BROADCAST,
       ...savedMessage,
-    });
+    } as ServerMessage;
+
+    if (payload.recipient) {
+      // It's a DM, route it ONLY to recipient and sender
+      connectionManager.sendToUsername(payload.recipient, broadcastPayload);
+      if (payload.recipient.toLowerCase() !== client.username.toLowerCase()) {
+        connectionManager.sendToUsername(client.username, broadcastPayload);
+      }
+    } else {
+      // Global chat, broadcast to all
+      connectionManager.broadcastAll(broadcastPayload);
+    }
+
   } catch (err) {
     console.error(`[ws][${socketId}] Error saving message:`, err);
     return _sendError(ws, "Failed to send message.");
+  }
+}
+
+export async function handleFetchHistory(
+  socketId: string,
+  ws: WebSocket,
+  payload: ClientFetchHistory
+): Promise<void> {
+  const client = connectionManager.getClient(socketId);
+  if (!client) {
+    return _sendError(ws, "You must join before fetching history.");
+  }
+
+  try {
+    const history = await getChatHistory(client.username, payload.target || "global", 50);
+    connectionManager.send(socketId, {
+      type: WsEvent.HISTORY,
+      messages: history,
+    });
+  } catch (err) {
+    console.error(`[ws][${socketId}] Failed to load history:`, err);
+    return _sendError(ws, "Failed to load chat history.");
   }
 }
 

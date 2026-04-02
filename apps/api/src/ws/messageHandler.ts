@@ -1,6 +1,6 @@
 import WebSocket from "ws";
 import { WsEvent, ClientPayload } from "@repo/types";
-import { handleJoin, handleMessage, handlePing } from "./eventHandlers";
+import { handleJoin, handleMessage, handlePing, handleFetchHistory } from "./eventHandlers";
 
 export async function handleMessageDispatcher(
   socketId: string,
@@ -28,6 +28,10 @@ export async function handleMessageDispatcher(
 
     case WsEvent.PING:
       handlePing(socketId, ws);
+      break;
+
+    case WsEvent.FETCH_HISTORY:
+      await handleFetchHistory(socketId, ws, payload as any);
       break;
 
     default:

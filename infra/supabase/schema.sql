@@ -116,3 +116,86 @@ BEGIN
   WHERE m.id = v_message_id;
 END;
 $$ LANGUAGE plpgsql;
+
+-- ============================================
+-- SPRINT 4: DIRECT MESSAGES ENHANCEMENT
+-- ============================================
+
+-- Add recipient column for private messages
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS recipient_username TEXT DEFAULT NULL;
+CREATE INDEX IF NOT EXISTS idx_messages_recipient ON messages(recipient_username);
+
+-- Drop previous insert_message since signature is changing
+DROP FUNCTION IF EXISTS insert_message(TEXT, TEXT, TEXT);
+
+-- Recreate with recipient_username support
+CREATE OR REPLACE FUNCTION insert_message(
+  p_username TEXT,
+  p_content TEXT,
+  p_node_id TEXT DEFAULT NULL,
+  p_recipient_username TEXT DEFAULT NULL
+)
+RETURNS TABLE(
+  message_id UUID,
+  user_id UUID,
+  username TEXT,
+  content TEXT,
+  node_id TEXT,
+  created_at TIMESTAMP WITH TIME ZONE,
+  recipient_username TEXT
+) AS $$
+DECLARE
+  v_user_id UUID;
+  v_message_id UUID;
+BEGIN
+  v_user_id := get_or_create_user(p_username);
+  
+  INSERT INTO messages (user_id, username, content, node_id, recipient_username)
+  VALUES (v_user_id, p_username, p_content, p_node_id, p_recipient_username)
+  RETURNING id INTO v_message_id;
+  
+  RETURN QUERY
+  SELECT m.id, m.user_id, m.username, m.content, m.node_id, m.created_at, m.recipient_username
+  FROM messages m WHERE m.id = v_message_id;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Fetch history dynamically depending on global or DM context
+CREATE OR REPLACE FUNCTION get_chat_history(
+  p_requester TEXT,
+  p_target TEXT,
+  p_limit INT DEFAULT 50
+)
+RETURNS TABLE(
+  id UUID,
+  user_id UUID,
+  username TEXT,
+  content TEXT,
+  node_id TEXT,
+  created_at TIMESTAMP WITH TIME ZONE,
+  recipient_username TEXT
+) AS $$
+BEGIN
+  IF p_target = 'global' THEN
+    -- Global chat query
+    RETURN QUERY
+    SELECT m.id, m.user_id, m.username, m.content, m.node_id, m.created_at, m.recipient_username
+    FROM messages m
+    WHERE m.recipient_username IS NULL
+    ORDER BY m.created_at DESC
+    LIMIT p_limit;
+  ELSE
+    -- Private DM query between two users
+    RETURN QUERY
+    SELECT m.id, m.user_id, m.username, m.content, m.node_id, m.created_at, m.recipient_username
+    FROM messages m
+    WHERE 
+      (m.username = p_requester AND m.recipient_username = p_target)
+      OR 
+      (m.username = p_target AND m.recipient_username = p_requester)
+    ORDER BY m.created_at DESC
+    LIMIT p_limit;
+  END IF;
+END;
+$$ LANGUAGE plpgsql;
+

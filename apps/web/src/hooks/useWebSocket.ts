@@ -8,6 +8,7 @@ export function useWebSocket(username: string | null) {
   const [isConnected, setIsConnected] = useState(false);
   const [messages, setMessages] = useState<StoredMessage[]>([]);
   const [onlineCount, setOnlineCount] = useState(0);
+  const [activeUsers, setActiveUsers] = useState<string[]>([]);
   const [nodeId, setNodeId] = useState<string>("Unknown node");
   const [userId, setUserId] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
@@ -44,7 +45,6 @@ export function useWebSocket(username: string | null) {
 
     socket.onerror = (err) => {
       console.error("WebSocket error:", err);
-      // Don't overwrite explicit server errors with generic ws errors
     };
 
     setWs(socket);
@@ -60,32 +60,62 @@ export function useWebSocket(username: string | null) {
         setUserId(payload.userId);
         setNodeId(payload.nodeId);
         setOnlineCount(payload.onlineCount);
+        if (payload.activeUsers) setActiveUsers(payload.activeUsers);
         break;
       case WsEvent.HISTORY:
         setMessages(payload.messages);
         break;
       case WsEvent.MESSAGE:
-        // Prevent duplicate optimistic messages if we add that later
+        // Assume messages coming in are relevant to the current history context.
         setMessages((prev) => {
           if (prev.find((m) => m.id === payload.id)) return prev;
           return [...prev, payload];
         });
         break;
+      case WsEvent.USER_JOINED:
+        setOnlineCount(payload.onlineCount);
+        setActiveUsers(prev => prev.includes(payload.username) ? prev : [...prev, payload.username]);
+        break;
+      case WsEvent.USER_LEFT:
+        setOnlineCount(payload.onlineCount);
+        setActiveUsers(prev => prev.filter(name => name !== payload.username));
+        break;
       case WsEvent.ERROR:
         setError(payload.message);
         break;
-      // Other events like PING can be ignored or handled
     }
   }, []);
 
   const sendMessage = useCallback(
-    (content: string) => {
+    (content: string, recipient?: string) => {
       if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
-      const payload: ClientPayload = { type: WsEvent.MESSAGE, content };
+      
+      const payload: ClientPayload = { 
+        type: WsEvent.MESSAGE, 
+        content,
+      };
+      
+      if (recipient) {
+        payload.recipient = recipient;
+      }
+      
       wsRef.current.send(JSON.stringify(payload));
     },
     []
   );
+
+  const fetchHistory = useCallback((target: string) => {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+    
+    // Clear out current messages visually while fetching the new ones
+    setMessages([]);
+    
+    const payload: ClientPayload = {
+      type: WsEvent.FETCH_HISTORY,
+      target
+    };
+    wsRef.current.send(JSON.stringify(payload));
+  }, []);
 
   return {
     isConnected,
@@ -93,7 +123,9 @@ export function useWebSocket(username: string | null) {
     userId,
     nodeId,
     onlineCount,
+    activeUsers,
     error,
     sendMessage,
+    fetchHistory
   };
 }

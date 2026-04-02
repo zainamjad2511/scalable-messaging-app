@@ -61,6 +61,18 @@ class ConnectionManager {
       client.ws.send(JSON.stringify(payload));
     }
   }
+
+  sendToUsername(username: string, payload: ServerPayload): void {
+    const data = JSON.stringify(payload);
+    for (const client of this.clients.values()) {
+      if (
+        client.username.toLowerCase() === username.toLowerCase() &&
+        client.ws.readyState === WebSocket.OPEN
+      ) {
+        client.ws.send(data);
+      }
+    }
+  }
 }
 
 export const connectionManager = new ConnectionManager();

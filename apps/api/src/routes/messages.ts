@@ -1,12 +1,12 @@
 import { Router } from "express";
-import { getRecentMessages } from "../db/queries";
+import { getChatHistory } from "../db/queries";
 
 const router = Router();
 
 router.get("/", async (req, res) => {
   try {
     const limit = Number(req.query.limit) || 50;
-    const messages = await getRecentMessages(Math.min(limit, 100));
+    const messages = await getChatHistory("api", "global", Math.min(limit, 100));
     res.json({ messages });
   } catch (error: any) {
     console.error("[route] /messages error:", error);

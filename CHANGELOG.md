@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added (Sprint 4 - Direct Messaging)
+- Supabase Schema: `recipient_username` isolation & dynamic contextual `get_chat_history` RPC.
+- Extracted and defined `FETCH_HISTORY` typed payloads mapping dynamically loaded conversations.
+- WS Backend Routing (`connectionManager.ts`): Built private point-to-point delivery via `sendToUsername`.
+- WS Event Interceptor (`eventHandlers.ts`): Identifies if `recipient` is specified and splits it off the global broadcast channel.
+- Next.js UI Sidebar: Dynamically tracks `activeUsers` in an automated array directly from WS.
+- Next.js Global State: Added toggle between `"global"` and individual target strings. Message feed wipes and re-fetches synchronously via socket context.
+
 ### Added (Sprint 3 - Frontend)
 - Next.js 14 Frontend initialized in `apps/web`.
 - Implemented Discord & Linear hybrid UI aesthetic within `app/globals.css`.

@@ -6,6 +6,7 @@ export const WsEvent = {
   JOIN: "join",
   MESSAGE: "message",
   PING: "ping",
+  FETCH_HISTORY: "fetch_history",
 
   // SERVER → CLIENT
   WELCOME: "welcome",
