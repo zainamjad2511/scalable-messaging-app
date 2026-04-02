@@ -24,3 +24,9 @@ pnpm-debug.log*
 # docker
 *.pid
 
+# markdown — keep docs/ and root README tracked; ignore everything else
+*.md
+!README.md
+!CHANGELOG.md
+!docs/**/*.md
+
