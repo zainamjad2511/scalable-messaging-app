@@ -23,7 +23,7 @@ export default function ChatPage() {
     }
   }, [router]);
 
-  const { isConnected, messages, nodeId, onlineCount, activeUsers, error, sendMessage, fetchHistory } = useWebSocket(username);
+  const { isConnected, messages, nodeId, onlineCount, activeUsers, error, sendMessage, fetchHistory } = useWebSocket(username, activeChat);
 
   // Auto-scroll on new message
   useEffect(() => {

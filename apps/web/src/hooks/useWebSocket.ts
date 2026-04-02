@@ -3,7 +3,7 @@ import { WsEvent, ClientPayload, ServerPayload, StoredMessage } from "@repo/type
 
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:4000";
 
-export function useWebSocket(username: string | null) {
+export function useWebSocket(username: string | null, activeChat: string) {
   const [ws, setWs] = useState<WebSocket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [messages, setMessages] = useState<StoredMessage[]>([]);
@@ -14,6 +14,11 @@ export function useWebSocket(username: string | null) {
   const [error, setError] = useState<string | null>(null);
   
   const wsRef = useRef<WebSocket | null>(null);
+  const activeChatRef = useRef(activeChat);
+
+  useEffect(() => {
+    activeChatRef.current = activeChat;
+  }, [activeChat]);
 
   useEffect(() => {
     if (!username) return;
@@ -66,9 +71,22 @@ export function useWebSocket(username: string | null) {
         setMessages(payload.messages);
         break;
       case WsEvent.MESSAGE:
-        // Assume messages coming in are relevant to the current history context.
         setMessages((prev) => {
           if (prev.find((m) => m.id === payload.id)) return prev;
+          
+          const currentChat = activeChatRef.current;
+          const isGlobalMsg = !payload.recipient_username;
+          
+          if (currentChat === "global") {
+            if (!isGlobalMsg) return prev; // It's a DM, ignore for global chat
+          } else {
+            if (isGlobalMsg) return prev; // It's global, ignore for DM
+            // Ensure DM belongs to the activeChat user session
+            if (payload.username !== currentChat && payload.recipient_username !== currentChat) {
+              return prev; 
+            }
+          }
+          
           return [...prev, payload];
         });
         break;
