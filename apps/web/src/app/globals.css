@@ -1,0 +1,24 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg-primary: #0A0A0F;
+  --color-bg-secondary: #1A1A24;
+  --color-bg-tertiary: #2A2A35;
+  
+  --color-text-primary: #E4E4E7;
+  --color-text-muted: #71717A;
+  
+  --color-brand-start: #3B82F6;
+  --color-brand-end: #8B5CF6;
+}
+
+:root {
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+}
+
+body {
+  background-color: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  font-family: inherit;
+}

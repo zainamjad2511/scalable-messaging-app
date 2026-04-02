@@ -4,7 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-### Added
+### Added (Sprint 3 - Frontend)
+- Next.js 14 Frontend initialized in `apps/web`.
+- Implemented Discord & Linear hybrid UI aesthetic within `app/globals.css`.
+- Landing/Login page (`app/page.tsx`) with localStorage session routing.
+- Real-time hooks (`useWebSocket.ts`) connecting to ws://localhost:4000.
+- Discord-style mock multi-column layout for chat interface (`app/chat/page.tsx`).
+- Real-time message dispatching with optimistic UI updating.
+- Integration dependencies for `@repo/shared` and `@repo/types` mapped inside the React app.
 - Backend WebSocket server with `express` and `ws` (`apps/api`).
 - Active WebSocket connection manager for routing and broadcasting.
 - Supabase integration with RPC calls for `insert_message` and `get_or_create_user`.
