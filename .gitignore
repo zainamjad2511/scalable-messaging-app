@@ -28,5 +28,6 @@ pnpm-debug.log*
 *.md
 !README.md
 !CHANGELOG.md
+!SETUP.md
 !docs/**/*.md
 
