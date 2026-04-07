@@ -23,6 +23,12 @@ app.use((_err: any, _req: express.Request, res: express.Response, _next: express
   res.status(500).json({ error: "Internal server error" });
 });
 
+app.use((req, _res, next) => { // Adding the underscore tells TS "I know I'm not using this"
+  console.log(`[${process.env.NODE_ID}] ${req.method} request to ${req.url}`);
+  next();
+});
+
+
 const httpServer = createServer(app);
 const wss = new WebSocketServer({ server: httpServer });
 
