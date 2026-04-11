@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { WsEvent, ClientPayload, ServerPayload, StoredMessage } from "@repo/types";
 
-const WS_URL = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:4000";
+
+const WS_URL = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost";
 
 export function useWebSocket(username: string | null, activeChat: string) {
   const [ws, setWs] = useState<WebSocket | null>(null);

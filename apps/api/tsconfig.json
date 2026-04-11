@@ -4,7 +4,12 @@
     "outDir": "./dist",
     "rootDir": "./src",
     "module": "commonjs",
-    "moduleResolution": "node"
+    "moduleResolution": "node",
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "downlevelIteration": true,
+    "noUnusedParameters": false,
+    "noUnusedLocals": false         
   },
   "ts-node": {
     "ignore": ["node_modules/(?!@repo/)"],

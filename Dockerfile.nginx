@@ -1,0 +1,9 @@
+# Use the official, extremely lightweight Nginx image based on Alpine Linux
+FROM nginx:alpine
+
+# Copy our custom configuration file from our project directory 
+# into the standardized location where the Nginx container expects it
+COPY infra/nginx/nginx.conf /etc/nginx/nginx.conf
+
+# Expose port 80 since our load balancer intercepts web traffic
+EXPOSE 80
