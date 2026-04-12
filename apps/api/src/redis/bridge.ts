@@ -100,6 +100,11 @@ export function isRedisBridgeActive(): boolean {
   return publisher !== null && subscriber !== null;
 }
 
+/** For presence SET / SCARD (publisher connection only; not in subscribe mode). */
+export function getRedisPublisher(): Redis | null {
+  return publisher;
+}
+
 /** No-op when Redis is disabled or not started. Returns subscriber count from Redis (0 if disabled). */
 export async function publishChatEvent(envelope: RedisChatEventEnvelope): Promise<number> {
   if (!publisher) return 0;

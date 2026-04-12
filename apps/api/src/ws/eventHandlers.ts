@@ -5,7 +5,15 @@ import { connectionManager } from "./connectionManager";
 import { getChatHistory, saveMessage } from "../db/queries";
 import { supabase } from "../db/supabase";
 import { config } from "../config";
-import { publishChatEvent, REDIS_CHAT_KIND, type RedisChatEventEnvelope } from "../redis";
+import {
+  publishChatEvent,
+  REDIS_CHAT_KIND,
+  isRedisBridgeActive,
+  tryClaimGlobalPresence,
+  releaseGlobalPresence,
+  getGlobalPresenceSnapshot,
+  type RedisChatEventEnvelope,
+} from "../redis";
 
 function isRelayableServerMessage(p: unknown): p is ServerMessage {
   if (!p || typeof p !== "object" || Array.isArray(p)) return false;
@@ -16,6 +24,12 @@ function isRelayableServerMessage(p: unknown): p is ServerMessage {
     typeof o.username === "string" &&
     typeof o.content === "string"
   );
+}
+
+function isRedisPresenceRelayPayload(p: unknown): p is { username: string; onlineCount: number } {
+  if (!p || typeof p !== "object" || Array.isArray(p)) return false;
+  const o = p as Record<string, unknown>;
+  return typeof o.username === "string" && typeof o.onlineCount === "number";
 }
 
 /**
@@ -50,6 +64,34 @@ export function handleRedisChatEvent(envelope: RedisChatEventEnvelope): void {
     if (recipient.toLowerCase() !== msg.username.toLowerCase()) {
       connectionManager.sendToUsername(msg.username, msg);
     }
+    return;
+  }
+
+  if (envelope.kind === REDIS_CHAT_KIND.USER_JOINED) {
+    const p = envelope.payload;
+    if (!isRedisPresenceRelayPayload(p)) {
+      console.warn("[redis] dropped invalid USER_JOINED relay payload");
+      return;
+    }
+    connectionManager.broadcastAll({
+      type: WsEvent.USER_JOINED,
+      username: p.username,
+      onlineCount: p.onlineCount,
+    });
+    return;
+  }
+
+  if (envelope.kind === REDIS_CHAT_KIND.USER_LEFT) {
+    const p = envelope.payload;
+    if (!isRedisPresenceRelayPayload(p)) {
+      console.warn("[redis] dropped invalid USER_LEFT relay payload");
+      return;
+    }
+    connectionManager.broadcastAll({
+      type: WsEvent.USER_LEFT,
+      username: p.username,
+      onlineCount: p.onlineCount,
+    });
   }
 }
 
@@ -79,7 +121,7 @@ export async function handleJoin(
       return _sendError(ws, "Failed to authenticate with database.");
     }
 
-    // 2. Add to local registry
+    // 2. Add to local registry, then cluster-wide presence (Redis SET) so other replicas see this user.
     connectionManager.add({
       socketId,
       userId: userId as string,
@@ -88,7 +130,19 @@ export async function handleJoin(
       joinedAt: new Date(),
     });
 
-    const onlineCount = connectionManager.getCount();
+    if (isRedisBridgeActive()) {
+      const claimed = await tryClaimGlobalPresence(username);
+      if (!claimed) {
+        connectionManager.remove(socketId);
+        return _sendError(ws, "Username is already connected from another session.");
+      }
+    }
+
+    const presenceSnap = isRedisBridgeActive()
+      ? await getGlobalPresenceSnapshot()
+      : null;
+    const onlineCount = presenceSnap?.count ?? connectionManager.getCount();
+    const activeUsers = presenceSnap?.usernames ?? connectionManager.getUsernames();
 
     // 3. Send WELCOME
     connectionManager.send(socketId, {
@@ -97,7 +151,7 @@ export async function handleJoin(
       username,
       nodeId: config.nodeId,
       onlineCount,
-      activeUsers: connectionManager.getUsernames(),
+      activeUsers,
     });
 
     // 4. Load & send initial global HISTORY
@@ -111,7 +165,7 @@ export async function handleJoin(
       console.error(`[ws][${socketId}] Failed to load history:`, err);
     }
 
-    // 5. Broadcast USER_JOINED
+    // 5. Broadcast USER_JOINED (other sockets on this node); other replicas receive Redis relay.
     connectionManager.broadcast(
       {
         type: WsEvent.USER_JOINED,
@@ -120,6 +174,14 @@ export async function handleJoin(
       },
       socketId
     );
+
+    if (isRedisBridgeActive()) {
+      void publishChatEvent({
+        sourceNodeId: config.nodeId,
+        kind: REDIS_CHAT_KIND.USER_JOINED,
+        payload: { username, onlineCount },
+      }).catch((err) => console.error("[redis] publish USER_JOINED failed:", err));
+    }
   } catch (err) {
     console.error(`[ws][${socketId}] Error in handleJoin:`, err);
     return _sendError(ws, "Internal server error during join.");
@@ -201,14 +263,37 @@ export async function handleFetchHistory(
 
 export function handleDisconnect(socketId: string): void {
   const client = connectionManager.remove(socketId);
-  if (client) {
-    const onlineCount = connectionManager.getCount();
+  if (!client) return;
+
+  const broadcastLeft = (onlineCount: number) => {
     connectionManager.broadcastAll({
       type: WsEvent.USER_LEFT,
       username: client.username,
       onlineCount,
     });
+  };
+
+  if (!isRedisBridgeActive()) {
+    broadcastLeft(connectionManager.getCount());
+    return;
   }
+
+  void (async () => {
+    try {
+      await releaseGlobalPresence(client.username);
+      const snap = await getGlobalPresenceSnapshot();
+      const onlineCount = snap?.count ?? connectionManager.getCount();
+      broadcastLeft(onlineCount);
+      void publishChatEvent({
+        sourceNodeId: config.nodeId,
+        kind: REDIS_CHAT_KIND.USER_LEFT,
+        payload: { username: client.username, onlineCount },
+      }).catch((err) => console.error("[redis] publish USER_LEFT failed:", err));
+    } catch (err) {
+      console.error(`[ws][${socketId}] presence release failed:`, err);
+      broadcastLeft(connectionManager.getCount());
+    }
+  })();
 }
 
 export function handlePing(_socketId: string, ws: WebSocket): void {
