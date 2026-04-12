@@ -19,31 +19,49 @@ services:
   # ==============================================================
   # BACKEND CLUSTER - 3 INDEPENDENT NODES (Phase 2)
   # ==============================================================
+  # API replicas: copy apps/api/.env.example → apps/api/.env with real Supabase values.
+  # REDIS_URL uses the Docker service hostname "redis" (not localhost) on the compose network.
+  # From the host (e.g. API running locally), Compose Redis is redis://localhost:6380 — 6379 is left for a native Redis on the host.
   api_1:
     build:
       context: .
       dockerfile: Dockerfile.api
+    env_file:
+      - apps/api/.env
     environment:
-      - NODE_ID=node-1
-      - PORT=4000
-    # Notice we DO NOT map ports here (e.g. 4000:4000). 
+      NODE_ID: node-1
+      PORT: "4000"
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      - redis
+    # Notice we DO NOT map ports here (e.g. 4000:4000).
     # Nginx will communicate with this node entirely internally.
 
   api_2:
     build:
       context: .
       dockerfile: Dockerfile.api
+    env_file:
+      - apps/api/.env
     environment:
-      - NODE_ID=node-2
-      - PORT=4000
+      NODE_ID: node-2
+      PORT: "4000"
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      - redis
 
   api_3:
     build:
       context: .
       dockerfile: Dockerfile.api
+    env_file:
+      - apps/api/.env
     environment:
-      - NODE_ID=node-3
-      - PORT=4000
+      NODE_ID: node-3
+      PORT: "4000"
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      - redis
 
   # ==============================================================
   # REDIS MESSAGE BROKER (Phase 3 Preparation)
@@ -51,7 +69,7 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "6380:6379"
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - redis_data:/data
