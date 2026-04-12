@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+- Supabase `get_or_create_user`: atomic `INSERT ... ON CONFLICT (username) DO UPDATE SET last_seen` to avoid duplicate-user races under concurrent first connects; migration in `infra/supabase/migrations/20260412_atomic_get_or_create_user.sql`.
+
 ### Added (Sprint 4 - Direct Messaging)
 - Supabase Schema: `recipient_username` isolation & dynamic contextual `get_chat_history` RPC.
 - Extracted and defined `FETCH_HISTORY` typed payloads mapping dynamically loaded conversations.
