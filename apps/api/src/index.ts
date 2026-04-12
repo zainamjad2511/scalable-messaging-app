@@ -5,9 +5,9 @@ import { createServer } from "http";
 import { WebSocketServer } from "ws";
 import { v4 as uuidv4 } from "uuid";
 import { config } from "./config";
-import { startRedisBridge, stopRedisBridge } from "./redis";
+import { startRedisBridge, stopRedisBridge, setChatEventHandler } from "./redis";
 import { handleMessageDispatcher } from "./ws/messageHandler";
-import { handleDisconnect } from "./ws/eventHandlers";
+import { handleDisconnect, handleRedisChatEvent } from "./ws/eventHandlers";
 import healthRouter from "./routes/health";
 import messagesRouter from "./routes/messages";
 
@@ -74,6 +74,7 @@ httpServer.listen(config.port, () => {
     }
     try {
       await startRedisBridge(config.redisUrl);
+      setChatEventHandler(handleRedisChatEvent);
     } catch (err) {
       console.error("[redis] failed to start:", err);
       process.exit(1);

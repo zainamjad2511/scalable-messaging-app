@@ -5,6 +5,53 @@ import { connectionManager } from "./connectionManager";
 import { getChatHistory, saveMessage } from "../db/queries";
 import { supabase } from "../db/supabase";
 import { config } from "../config";
+import { publishChatEvent, REDIS_CHAT_KIND, type RedisChatEventEnvelope } from "../redis";
+
+function isRelayableServerMessage(p: unknown): p is ServerMessage {
+  if (!p || typeof p !== "object" || Array.isArray(p)) return false;
+  const o = p as Record<string, unknown>;
+  return (
+    o.type === WsEvent.BROADCAST &&
+    typeof o.id === "string" &&
+    typeof o.username === "string" &&
+    typeof o.content === "string"
+  );
+}
+
+/**
+ * Fan-out chat events from other API replicas. Skip when `sourceNodeId` matches this node
+ * (publisher already delivered locally).
+ */
+export function handleRedisChatEvent(envelope: RedisChatEventEnvelope): void {
+  if (envelope.sourceNodeId === config.nodeId) return;
+
+  if (envelope.kind === REDIS_CHAT_KIND.BROADCAST) {
+    const p = envelope.payload;
+    if (!isRelayableServerMessage(p)) {
+      console.warn("[redis] dropped invalid global relay payload");
+      return;
+    }
+    connectionManager.broadcastAll(p);
+    return;
+  }
+
+  if (envelope.kind === REDIS_CHAT_KIND.DM) {
+    const msg = envelope.payload;
+    if (!isRelayableServerMessage(msg)) {
+      console.warn("[redis] dropped invalid DM relay payload");
+      return;
+    }
+    const recipient = msg.recipient_username;
+    if (!recipient || typeof recipient !== "string") {
+      console.warn("[redis] dropped DM relay without recipient_username");
+      return;
+    }
+    connectionManager.sendToUsername(recipient, msg);
+    if (recipient.toLowerCase() !== msg.username.toLowerCase()) {
+      connectionManager.sendToUsername(msg.username, msg);
+    }
+  }
+}
 
 export async function handleJoin(
   socketId: string,
@@ -109,9 +156,19 @@ export async function handleMessage(
       if (payload.recipient.toLowerCase() !== client.username.toLowerCase()) {
         connectionManager.sendToUsername(client.username, broadcastPayload);
       }
+      void publishChatEvent({
+        sourceNodeId: config.nodeId,
+        kind: REDIS_CHAT_KIND.DM,
+        payload: broadcastPayload,
+      }).catch((err) => console.error("[redis] publish DM failed:", err));
     } else {
       // Global chat, broadcast to all
       connectionManager.broadcastAll(broadcastPayload);
+      void publishChatEvent({
+        sourceNodeId: config.nodeId,
+        kind: REDIS_CHAT_KIND.BROADCAST,
+        payload: broadcastPayload,
+      }).catch((err) => console.error("[redis] publish global failed:", err));
     }
 
   } catch (err) {
