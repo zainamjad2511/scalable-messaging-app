@@ -69,4 +69,9 @@ docker compose up --build
 ```
 Use `NEXT_PUBLIC_WS_URL=ws://localhost` (or rely on the frontend default) so the browser’s WebSocket hits Nginx on port 80.
 
+## 6. Fault tolerance & load checks (Phase 3)
+- **Chaos:** [`tests/chaos-testing/README.md`](tests/chaos-testing/README.md) — scripts and a pass/fail checklist (`npm run test:chaos:kill-api`, `npm run test:chaos:restart-redis`).
+- **Load:** [`tests/load-testing/README.md`](tests/load-testing/README.md) — k6 WebSocket smoke (`npm run test:load:k6`, install [k6](https://grafana.com/docs/k6/latest/set-up/install-k6/) first).
+- **Health:** `curl -s http://localhost/health | jq .` includes `redisConfigured` and `redisConnected` when the API is behind Nginx.
+
 ---

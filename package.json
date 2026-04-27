@@ -7,7 +7,10 @@
   ],
   "scripts": {
     "dev:api": "npm run dev --workspace=apps/api",
-    "dev:web": "npm run dev --workspace=apps/web"
+    "dev:web": "npm run dev --workspace=apps/web",
+    "test:chaos:kill-api": "bash tests/chaos-testing/kill-api-replica.sh",
+    "test:chaos:restart-redis": "bash tests/chaos-testing/restart-redis.sh",
+    "test:load:k6": "k6 run tests/load-testing/k6-ws-chat.js"
   },
   "devDependencies": {
     "typescript": "^6.0.2"
