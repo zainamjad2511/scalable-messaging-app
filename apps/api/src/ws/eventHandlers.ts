@@ -9,7 +9,7 @@ import {
   publishChatEvent,
   REDIS_CHAT_KIND,
   isRedisBridgeActive,
-  tryClaimGlobalPresence,
+  refreshGlobalPresence,
   releaseGlobalPresence,
   getGlobalPresenceSnapshot,
   type RedisChatEventEnvelope,
@@ -106,10 +106,6 @@ export async function handleJoin(
     return _sendError(ws, "Invalid username. 3-20 chars, a-z, 0-9, _ only.");
   }
 
-  if (connectionManager.isUsernameTaken(username)) {
-    return _sendError(ws, "Username is already taken.");
-  }
-
   try {
     // 1. Get or create user in Supabase
     const { data: userId, error } = await supabase.rpc("get_or_create_user", {
@@ -121,7 +117,7 @@ export async function handleJoin(
       return _sendError(ws, "Failed to authenticate with database.");
     }
 
-    // 2. Add to local registry, then cluster-wide presence (Redis SET) so other replicas see this user.
+    // 2. Add to local registry, then refresh cluster-wide presence (Redis ZSET expiry) so other replicas see this user.
     connectionManager.add({
       socketId,
       userId: userId as string,
@@ -131,11 +127,7 @@ export async function handleJoin(
     });
 
     if (isRedisBridgeActive()) {
-      const claimed = await tryClaimGlobalPresence(username);
-      if (!claimed) {
-        connectionManager.remove(socketId);
-        return _sendError(ws, "Username is already connected from another session.");
-      }
+      await refreshGlobalPresence(username);
     }
 
     const presenceSnap = isRedisBridgeActive()
@@ -296,8 +288,13 @@ export function handleDisconnect(socketId: string): void {
   })();
 }
 
-export function handlePing(_socketId: string, ws: WebSocket): void {
-  // direct raw send if we don't know the socket yet
+export function handlePing(socketId: string, ws: WebSocket): void {
+  const client = connectionManager.getClient(socketId);
+  if (client && isRedisBridgeActive()) {
+    void refreshGlobalPresence(client.username).catch((err) =>
+      console.error(`[ws][${socketId}] presence refresh failed:`, err)
+    );
+  }
   if (ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: WsEvent.PONG }));
   }
