@@ -5,6 +5,95 @@ import { connectionManager } from "./connectionManager";
 import { getChatHistory, saveMessage } from "../db/queries";
 import { supabase } from "../db/supabase";
 import { config } from "../config";
+import {
+  publishChatEvent,
+  REDIS_CHAT_KIND,
+  isRedisBridgeActive,
+  refreshGlobalPresence,
+  releaseGlobalPresence,
+  getGlobalPresenceSnapshot,
+  type RedisChatEventEnvelope,
+} from "../redis";
+
+function isRelayableServerMessage(p: unknown): p is ServerMessage {
+  if (!p || typeof p !== "object" || Array.isArray(p)) return false;
+  const o = p as Record<string, unknown>;
+  return (
+    o.type === WsEvent.BROADCAST &&
+    typeof o.id === "string" &&
+    typeof o.username === "string" &&
+    typeof o.content === "string"
+  );
+}
+
+function isRedisPresenceRelayPayload(p: unknown): p is { username: string; onlineCount: number } {
+  if (!p || typeof p !== "object" || Array.isArray(p)) return false;
+  const o = p as Record<string, unknown>;
+  return typeof o.username === "string" && typeof o.onlineCount === "number";
+}
+
+/**
+ * Fan-out chat events from other API replicas. Skip when `sourceNodeId` matches this node
+ * (publisher already delivered locally).
+ */
+export function handleRedisChatEvent(envelope: RedisChatEventEnvelope): void {
+  if (envelope.sourceNodeId === config.nodeId) return;
+
+  if (envelope.kind === REDIS_CHAT_KIND.BROADCAST) {
+    const p = envelope.payload;
+    if (!isRelayableServerMessage(p)) {
+      console.warn("[redis] dropped invalid global relay payload");
+      return;
+    }
+    connectionManager.broadcastAll(p);
+    return;
+  }
+
+  if (envelope.kind === REDIS_CHAT_KIND.DM) {
+    const msg = envelope.payload;
+    if (!isRelayableServerMessage(msg)) {
+      console.warn("[redis] dropped invalid DM relay payload");
+      return;
+    }
+    const recipient = msg.recipient_username;
+    if (!recipient || typeof recipient !== "string") {
+      console.warn("[redis] dropped DM relay without recipient_username");
+      return;
+    }
+    connectionManager.sendToUsername(recipient, msg);
+    if (recipient.toLowerCase() !== msg.username.toLowerCase()) {
+      connectionManager.sendToUsername(msg.username, msg);
+    }
+    return;
+  }
+
+  if (envelope.kind === REDIS_CHAT_KIND.USER_JOINED) {
+    const p = envelope.payload;
+    if (!isRedisPresenceRelayPayload(p)) {
+      console.warn("[redis] dropped invalid USER_JOINED relay payload");
+      return;
+    }
+    connectionManager.broadcastAll({
+      type: WsEvent.USER_JOINED,
+      username: p.username,
+      onlineCount: p.onlineCount,
+    });
+    return;
+  }
+
+  if (envelope.kind === REDIS_CHAT_KIND.USER_LEFT) {
+    const p = envelope.payload;
+    if (!isRedisPresenceRelayPayload(p)) {
+      console.warn("[redis] dropped invalid USER_LEFT relay payload");
+      return;
+    }
+    connectionManager.broadcastAll({
+      type: WsEvent.USER_LEFT,
+      username: p.username,
+      onlineCount: p.onlineCount,
+    });
+  }
+}
 
 export async function handleJoin(
   socketId: string,
@@ -15,10 +104,6 @@ export async function handleJoin(
 
   if (!isValidUsername(username)) {
     return _sendError(ws, "Invalid username. 3-20 chars, a-z, 0-9, _ only.");
-  }
-
-  if (connectionManager.isUsernameTaken(username)) {
-    return _sendError(ws, "Username is already taken.");
   }
 
   try {
@@ -32,7 +117,7 @@ export async function handleJoin(
       return _sendError(ws, "Failed to authenticate with database.");
     }
 
-    // 2. Add to local registry
+    // 2. Add to local registry, then refresh cluster-wide presence (Redis ZSET expiry) so other replicas see this user.
     connectionManager.add({
       socketId,
       userId: userId as string,
@@ -41,7 +126,15 @@ export async function handleJoin(
       joinedAt: new Date(),
     });
 
-    const onlineCount = connectionManager.getCount();
+    if (isRedisBridgeActive()) {
+      await refreshGlobalPresence(username);
+    }
+
+    const presenceSnap = isRedisBridgeActive()
+      ? await getGlobalPresenceSnapshot()
+      : null;
+    const onlineCount = presenceSnap?.count ?? connectionManager.getCount();
+    const activeUsers = presenceSnap?.usernames ?? connectionManager.getUsernames();
 
     // 3. Send WELCOME
     connectionManager.send(socketId, {
@@ -50,7 +143,7 @@ export async function handleJoin(
       username,
       nodeId: config.nodeId,
       onlineCount,
-      activeUsers: connectionManager.getUsernames(),
+      activeUsers,
     });
 
     // 4. Load & send initial global HISTORY
@@ -64,7 +157,7 @@ export async function handleJoin(
       console.error(`[ws][${socketId}] Failed to load history:`, err);
     }
 
-    // 5. Broadcast USER_JOINED
+    // 5. Broadcast USER_JOINED (other sockets on this node); other replicas receive Redis relay.
     connectionManager.broadcast(
       {
         type: WsEvent.USER_JOINED,
@@ -73,6 +166,14 @@ export async function handleJoin(
       },
       socketId
     );
+
+    if (isRedisBridgeActive()) {
+      void publishChatEvent({
+        sourceNodeId: config.nodeId,
+        kind: REDIS_CHAT_KIND.USER_JOINED,
+        payload: { username, onlineCount },
+      }).catch((err) => console.error("[redis] publish USER_JOINED failed:", err));
+    }
   } catch (err) {
     console.error(`[ws][${socketId}] Error in handleJoin:`, err);
     return _sendError(ws, "Internal server error during join.");
@@ -109,9 +210,19 @@ export async function handleMessage(
       if (payload.recipient.toLowerCase() !== client.username.toLowerCase()) {
         connectionManager.sendToUsername(client.username, broadcastPayload);
       }
+      void publishChatEvent({
+        sourceNodeId: config.nodeId,
+        kind: REDIS_CHAT_KIND.DM,
+        payload: broadcastPayload,
+      }).catch((err) => console.error("[redis] publish DM failed:", err));
     } else {
       // Global chat, broadcast to all
       connectionManager.broadcastAll(broadcastPayload);
+      void publishChatEvent({
+        sourceNodeId: config.nodeId,
+        kind: REDIS_CHAT_KIND.BROADCAST,
+        payload: broadcastPayload,
+      }).catch((err) => console.error("[redis] publish global failed:", err));
     }
 
   } catch (err) {
@@ -144,18 +255,46 @@ export async function handleFetchHistory(
 
 export function handleDisconnect(socketId: string): void {
   const client = connectionManager.remove(socketId);
-  if (client) {
-    const onlineCount = connectionManager.getCount();
+  if (!client) return;
+
+  const broadcastLeft = (onlineCount: number) => {
     connectionManager.broadcastAll({
       type: WsEvent.USER_LEFT,
       username: client.username,
       onlineCount,
     });
+  };
+
+  if (!isRedisBridgeActive()) {
+    broadcastLeft(connectionManager.getCount());
+    return;
   }
+
+  void (async () => {
+    try {
+      await releaseGlobalPresence(client.username);
+      const snap = await getGlobalPresenceSnapshot();
+      const onlineCount = snap?.count ?? connectionManager.getCount();
+      broadcastLeft(onlineCount);
+      void publishChatEvent({
+        sourceNodeId: config.nodeId,
+        kind: REDIS_CHAT_KIND.USER_LEFT,
+        payload: { username: client.username, onlineCount },
+      }).catch((err) => console.error("[redis] publish USER_LEFT failed:", err));
+    } catch (err) {
+      console.error(`[ws][${socketId}] presence release failed:`, err);
+      broadcastLeft(connectionManager.getCount());
+    }
+  })();
 }
 
-export function handlePing(_socketId: string, ws: WebSocket): void {
-  // direct raw send if we don't know the socket yet
+export function handlePing(socketId: string, ws: WebSocket): void {
+  const client = connectionManager.getClient(socketId);
+  if (client && isRedisBridgeActive()) {
+    void refreshGlobalPresence(client.username).catch((err) =>
+      console.error(`[ws][${socketId}] presence refresh failed:`, err)
+    );
+  }
   if (ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: WsEvent.PONG }));
   }

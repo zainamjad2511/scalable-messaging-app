@@ -55,24 +55,18 @@ CREATE POLICY "Allow all users insert messages" ON messages FOR INSERT WITH CHEC
 -- FUNCTIONS FOR ATOMIC OPERATIONS
 -- ============================================
 
--- Function to get or create user (atomic operation)
+-- Returns user id; safe under concurrent first-time creates (single statement, unique on username).
 CREATE OR REPLACE FUNCTION get_or_create_user(p_username TEXT)
 RETURNS UUID AS $$
 DECLARE
   v_user_id UUID;
 BEGIN
-  -- Try to get existing user
-  SELECT id INTO v_user_id FROM users WHERE username = p_username;
-  
-  -- If not found, create new user
-  IF v_user_id IS NULL THEN
-    INSERT INTO users (username) VALUES (p_username)
-    RETURNING id INTO v_user_id;
-  ELSE
-    -- Update last_seen
-    UPDATE users SET last_seen = NOW() WHERE id = v_user_id;
-  END IF;
-  
+  INSERT INTO users (username)
+  VALUES (p_username)
+  ON CONFLICT (username) DO UPDATE
+  SET last_seen = NOW()
+  RETURNING id INTO v_user_id;
+
   RETURN v_user_id;
 END;
 $$ LANGUAGE plpgsql;

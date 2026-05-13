@@ -11,19 +11,26 @@ This guide contains the exact steps your teammates will need to run the applicat
 Your teammates will need to setup their own `.env` files locally since these are safely ignored by git.
 
 ### Backend (`apps/api/.env`)
-Create a file at `apps/api/.env` and paste in your Supabase connection strings:
+Copy `apps/api/.env.example` to `apps/api/.env` and set your Supabase values (and Redis if you use it):
 ```env
 PORT=4000
 NODE_ID="node-1"
 SUPABASE_URL="YOUR_SUPABASE_PROJECT_URL"
 SUPABASE_SERVICE_KEY="YOUR_SUPABASE_SERVICE_ROLE_KEY"
+# REDIS_URL — see .env.example for host vs Docker Compose
 ```
 
 ### Frontend (`apps/web/.env.local`)
-*(Optional since the code defaults to localhost:4000)*
-Create a file at `apps/web/.env.local` to explicitly link to the backend:
+The WebSocket URL must match **how the browser reaches the API**. Copy `apps/web/.env.example` as a template.
+
+| How you run the API | `NEXT_PUBLIC_WS_URL` | Notes |
+|---------------------|----------------------|--------|
+| **Docker Compose + Nginx** (`docker compose up` — Nginx on host port **80**) | `ws://localhost` | Same as the app default; you can omit `.env.local`. Next.js still runs on **http://localhost:3000**; only the WS client connects to port 80. |
+| **Direct API on your machine** (`npm run dev:api`, default **4000**) | `ws://localhost:4000` | Required — the default port 80 URL would not reach the API. |
+
+Example for direct API only:
 ```env
-NEXT_PUBLIC_WS_URL="ws://localhost:4000"
+NEXT_PUBLIC_WS_URL=ws://localhost:4000
 ```
 
 ## 3. Database Replication (Supabase)
@@ -54,5 +61,17 @@ npm run dev:api
 npm run dev --workspace=apps/web
 ```
 *(The frontend will automatically be available locally at `http://localhost:3000`)*
+
+### Optional: full stack with Nginx + Redis + API replicas
+From the repo root (with `apps/api/.env` configured and Supabase schema applied):
+```bash
+docker compose up --build
+```
+Use `NEXT_PUBLIC_WS_URL=ws://localhost` (or rely on the frontend default) so the browser’s WebSocket hits Nginx on port 80.
+
+## 6. Fault tolerance & load checks (Phase 3)
+- **Chaos:** [`tests/chaos-testing/README.md`](tests/chaos-testing/README.md) — scripts and a pass/fail checklist (`npm run test:chaos:kill-api`, `npm run test:chaos:restart-redis`).
+- **Load:** [`tests/load-testing/README.md`](tests/load-testing/README.md) — k6 WebSocket smoke (`npm run test:load:k6`, install [k6](https://grafana.com/docs/k6/latest/set-up/install-k6/) first).
+- **Health:** `curl -s http://localhost/health | jq .` includes `redisConfigured` and `redisConnected` when the API is behind Nginx.
 
 ---
